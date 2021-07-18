@@ -110,10 +110,10 @@ jobs:
         run: |
           cd bsnes
           mv out ${{env.basename}}
-          7z a -r -mx=9 ${{env.basename}}.zip ${{env.basename}}
+          7z a -r -mx=9 ../${{env.basename}}.zip ${{env.basename}}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v1
         with:
           name: ${{env.basename}}.zip
-          path: ${{github.workspace}}/${{env.basename}}.zip
+          path: ${{github.workspace}}\${{env.basename}}.zip

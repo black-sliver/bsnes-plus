@@ -23,10 +23,12 @@ jobs:
         run: brew update && brew install qt@5
 
       - uses: actions/checkout@v2
+        name: Checkout
         with:
           fetch-depth: 0
 
       - run: echo "basename=bsnes-plus-${{env.GITHUB_REF_SLUG}}-mac" >> $GITHUB_ENV
+        name: Set variables
 
       - run: |
           cd bsnes
@@ -42,6 +44,7 @@ jobs:
           bsnes+.app/
 
       - uses: actions/upload-artifact@v1
+        name: Upload artifact
         with:
           name: ${{env.basename}}.tar.gz
           path: ${{github.workspace}}/${{env.basename}}.tar.gz
@@ -51,6 +54,7 @@ jobs:
 
     steps:
       - uses: msys2/setup-msys2@v2
+        name: Install MSYS2
         with:
           update: true
           install: >-
@@ -59,16 +63,13 @@ jobs:
             coreutils
             make
             mingw-w64-x86_64-toolchain
+            p7zip
 
       - name: Inject slug/short variables
         uses: rlespinasse/github-slug-action@v3.x
 
-      - name: Set up Go
-        uses: actions/setup-go@v2
-        with:
-          go-version: 1.16
-
       - uses: actions/checkout@v2
+        name: Checkout
         with:
           fetch-depth: 0
           submodules: recursive
@@ -104,17 +105,15 @@ jobs:
           cp "$MINGW_PREFIX/bin/libstdc++-6.dll" .
           cp "$MINGW_PREFIX/bin/libwinpthread-1.dll" .
 
-      # cross-platform tar.gz creator:
-      - name: Create ${{env.basename}}.tar.gz
-        run: >
-          go run
-          .github/scripts/tar.go
-          -z
-          -o ${{env.basename}}.tar.gz
-          -strip bsnes/out/
-          bsnes/out/
+      - name: Create ${{env.basename}}.zip
+        shell: msys2 {0}
+        run: |
+          cd bsnes
+          mv out ${{env.basename}}
+          7z a -r -mx=9 ${{env.basename}}.zip ${{env.basename}}
 
-      - uses: actions/upload-artifact@v1
+      - name: Upload artifact
+        uses: actions/upload-artifact@v1
         with:
-          name: ${{env.basename}}.tar.gz
-          path: ${{github.workspace}}/${{env.basename}}.tar.gz
+          name: ${{env.basename}}.zip
+          path: ${{github.workspace}}/${{env.basename}}.zip

@@ -29,15 +29,16 @@ protected:
     QByteArray cmdCoreMemories();
     QByteArray cmdCoreRead(QString memory, QList< QPair<int,int> > &regions);
     QByteArray cmdCoreWrite(QString memory, QList< QPair<int,int> > &regions, QByteArray data);
-    QByteArray cmdEmuInfo();
-    QByteArray cmdEmuStatus();
-    QByteArray cmdEmuReset();
-    QByteArray cmdEmuStop();
-    QByteArray cmdEmuPause();
-    QByteArray cmdEmuResume();
-    QByteArray cmdEmuReload();
+    QByteArray cmdEmulatorInfo();
+    QByteArray cmdEmulationStatus();
+    QByteArray cmdEmulationReset();
+    QByteArray cmdEmulationStop();
+    QByteArray cmdEmulationPause();
+    QByteArray cmdEmulationResume();
+    QByteArray cmdEmulationReload();
     QByteArray cmdLoadGame(QString filename);
     QByteArray cmdGameInfo();
+    QByteArray cmdMyNameIs();
 #if defined(DEBUGGER)
     QByteArray cmdDebugBreak();
     QByteArray cmdDebugContinue();

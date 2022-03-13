@@ -84,13 +84,13 @@ void NWAccess::clientDataReady()
             } else {
                 cmd = data.left(p);
             }
-            if (cmd == "EMU_INFO")
+            if (cmd == "EMULATOR_INFO" || cmd == "EMU_INFO")
             {
-                socket->write(cmdEmuInfo());
+                socket->write(cmdEmulatorInfo());
             }
-            else if (cmd == "EMU_STATUS")
+            else if (cmd == "EMULATION_STATUS" || cmd == "EMU_STATUS")
             {
-                socket->write(cmdEmuStatus());
+                socket->write(cmdEmulationStatus());
             }
             else if (cmd == "CORES_LIST")
             {
@@ -157,25 +157,29 @@ void NWAccess::clientDataReady()
             {
                 socket->write(cmdGameInfo());
             }
-            else if (cmd == "EMU_PAUSE")
+            else if (cmd == "EMULATION_PAUSE" || cmd == "EMU_PAUSE")
             {
-                socket->write(cmdEmuPause());
+                socket->write(cmdEmulationPause());
             }
-            else if (cmd == "EMU_RESUME")
+            else if (cmd == "EMULATION_RESUME" || cmd == "EMU_RESUME")
             {
-                socket->write(cmdEmuResume());
+                socket->write(cmdEmulationResume());
             }
-            else if (cmd == "EMU_STOP")
+            else if (cmd == "EMULATION_STOP" || cmd == "EMU_STOP")
             {
-                socket->write(cmdEmuStop());
+                socket->write(cmdEmulationStop());
             }
-            else if (cmd == "EMU_RESET")
+            else if (cmd == "EMULATION_RESET" || cmd == "EMU_RESET")
             {
-                socket->write(cmdEmuReset());
+                socket->write(cmdEmulationReset());
             }
-            else if (cmd == "EMU_RELOAD")
+            else if (cmd == "EMULATION_RELOAD" || cmd == "EMU_RELOAD")
             {
-                socket->write(cmdEmuReload());
+                socket->write(cmdEmulationReload());
+            }
+            else if (cmd == "MY_NAME_IS")
+            {
+                socket->write(cmdMyNameIs());
             }
 #if defined(DEBUGGER)
             else if (cmd == "DEBUG_BREAK")
@@ -267,7 +271,7 @@ QByteArray NWAccess::cmdCoreMemories()
 #endif
 }
 
-QByteArray NWAccess::cmdEmuStatus()
+QByteArray NWAccess::cmdEmulationStatus()
 {
     bool loaded = SNES::cartridge.loaded();
     bool stopped = !application.power;
@@ -287,7 +291,7 @@ QByteArray NWAccess::cmdEmuStatus()
                          QString("game:") + game);
 }
 
-QByteArray NWAccess::cmdEmuInfo()
+QByteArray NWAccess::cmdEmulatorInfo()
 {
     return makeHashReply(QString("name:") + SNES::Info::Name + "\n" +
                          QString("version:") + SNES::Info::Version);
@@ -300,26 +304,26 @@ QByteArray NWAccess::cmdCoreReset()
     return makeOkReply();
 }
 
-QByteArray NWAccess::cmdEmuReset()
+QByteArray NWAccess::cmdEmulationReset()
 {
     // this is a soft reset
     utility.modifySystemState(Utility::Reset);
     return makeOkReply();
 }
 
-QByteArray NWAccess::cmdEmuStop()
+QByteArray NWAccess::cmdEmulationStop()
 {
     utility.modifySystemState(Utility::PowerOff);
     return makeOkReply();
 }
 
-QByteArray NWAccess::cmdEmuPause()
+QByteArray NWAccess::cmdEmulationPause()
 {
     application.pause = true;
     return makeOkReply();
 }
 
-QByteArray NWAccess::cmdEmuResume()
+QByteArray NWAccess::cmdEmulationResume()
 {
     if (!SNES::cartridge.loaded()) {
         return makeErrorReply("no game loaded");
@@ -337,14 +341,14 @@ QByteArray NWAccess::cmdEmuResume()
         return makeOkReply();
     }
 }
-QByteArray NWAccess::cmdEmuReload()
+QByteArray NWAccess::cmdEmulationReload()
 {
     if (SNES::cartridge.loaded()) {
         application.reloadCartridge();
         return makeOkReply();
     } else {
-        cmdEmuStop();
-        return cmdEmuResume();
+        cmdEmulationStop();
+        return cmdEmulationResume();
     }
 }
 
@@ -377,6 +381,10 @@ QByteArray NWAccess::cmdGameInfo()
     return makeHashReply("name:" + name + "\n" +
                          "file:" + file + "\n" +
                          "region:" + region);
+}
+QByteArray NWAccess::cmdMyNameIs()
+{
+    return makeOkReply(); // ack unsupported but required command
 }
 
 #if defined(DEBUGGER)

@@ -58,8 +58,10 @@ void NWAccess::newConnection()
 
 void NWAccess::clientDisconnected()
 {
-    auto it = buffers.find(QObject::sender());
-    if (it != buffers.end()) buffers.erase(it);
+    auto bufferIt = buffers.find(QObject::sender());
+    if (bufferIt != buffers.end()) buffers.erase(bufferIt);
+    auto clientIt = clients.find(QObject::sender());
+    if (clientIt != clients.end()) clients.erase(clientIt);
 }
 
 static int toInt(const QString& s, int def=0)

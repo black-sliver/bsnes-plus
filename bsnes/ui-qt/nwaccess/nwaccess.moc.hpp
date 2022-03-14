@@ -9,46 +9,60 @@ public:
     NWAccess(QObject *parent = nullptr);
 
 protected:
+    struct Client;
+
     QTcpServer *server;
     QMap<QObject*,QByteArray> buffers;
-    
-    static QByteArray makeHashReply(QString reply);
-    static QByteArray makeEmptyListReply();
-    static QByteArray makeErrorReply(QString error);
-    static QByteArray makeOkReply();
-    static QByteArray makeBinaryReply(const QByteArray &data);
-    
+    QMap<QObject*,Client> clients;
+
 #if defined(DEBUGGER)
-    bool mapDebuggerMemory(const QString &memory, SNES::Debugger::MemorySource &source, unsigned &offset, unsigned &size);
+    static bool mapDebuggerMemory(const QString &memory, SNES::Debugger::MemorySource &source, unsigned &offset, unsigned &size);
 #endif
 
-    QByteArray cmdLoadCore(QString core);
-    QByteArray cmdCoresList(QString platform);
-    QByteArray cmdCoreInfo(QString core);
-    QByteArray cmdCoreReset();
-    QByteArray cmdCoreMemories();
-    QByteArray cmdCoreRead(QString memory, QList< QPair<int,int> > &regions);
-    QByteArray cmdCoreWrite(QString memory, QList< QPair<int,int> > &regions, QByteArray data);
-    QByteArray cmdEmulatorInfo();
-    QByteArray cmdEmulationStatus();
-    QByteArray cmdEmulationReset();
-    QByteArray cmdEmulationStop();
-    QByteArray cmdEmulationPause();
-    QByteArray cmdEmulationResume();
-    QByteArray cmdEmulationReload();
-    QByteArray cmdLoadGame(QString filename);
-    QByteArray cmdGameInfo();
-    QByteArray cmdMyNameIs();
+    struct Client {
+        enum class Version {
+            Unknown = 0,
+            Alpha = 1,
+            R100 = 100,
+        };
+
+        Version version = Version::Unknown;
+        QString id;
+
+        QByteArray makeHashReply(QString reply);
+        QByteArray makeHashReply(QList<QPair<const QString&,const QString&>> reply);
+        QByteArray makeEmptyListReply();
+        QByteArray makeErrorReply(QString type, QString msg);
+        QByteArray makeOkReply();
+        QByteArray makeBinaryReply(const QByteArray &data);
+
+        QByteArray cmdLoadCore(QString core);
+        QByteArray cmdCoresList(QString platform);
+        QByteArray cmdCoreInfo(QString core);
+        QByteArray cmdCoreReset();
+        QByteArray cmdCoreMemories();
+        QByteArray cmdCoreRead(QString memory, QList< QPair<int,int> > &regions);
+        QByteArray cmdCoreWrite(QString memory, QList< QPair<int,int> > &regions, QByteArray data);
+        QByteArray cmdEmulatorInfo();
+        QByteArray cmdEmulationStatus();
+        QByteArray cmdEmulationReset();
+        QByteArray cmdEmulationStop();
+        QByteArray cmdEmulationPause();
+        QByteArray cmdEmulationResume();
+        QByteArray cmdEmulationReload();
+        QByteArray cmdLoadGame(QString filename);
+        QByteArray cmdGameInfo();
+        QByteArray cmdMyNameIs(QString name);
 #if defined(DEBUGGER)
-    QByteArray cmdDebugBreak();
-    QByteArray cmdDebugContinue();
+        QByteArray cmdDebugBreak();
+        QByteArray cmdDebugContinue();
 #endif
-    
+    };
+
 public slots:
     void newConnection();
     void clientDisconnected();
     void clientDataReady();
-
 };
 
 extern NWAccess *nwaccess;

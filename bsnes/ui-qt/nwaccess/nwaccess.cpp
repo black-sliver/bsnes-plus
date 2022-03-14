@@ -21,6 +21,14 @@
 NWAccess *nwaccess;
 
 static QString coreName = "bsnes-" + QString(SNES::Info::Profile).toLower();
+static QString commands =
+"EMULATOR_INFO,EMULATION_STATUS,EMULATION_PAUSE,EMULATION_RESUME,EMULATION_STOP,EMULATION_RESET,EMULATION_RELOAD"
+",CORES_LIST,CORE_INFO,CORE_CURRENT_INFO,CORE_RESET,CORE_MEMORIES,CORE_READ,CORE_WRITE,LOAD_CORE"
+",LOAD_GAME,GAME_INFO,MY_NAME_IS"
+#if defined(DEBUGGER)
+",DEBUG_BREAK,DEBUG_CONTINUE"
+#endif
+;
 
 NWAccess::NWAccess(QObject *parent)
     : QObject(parent)
@@ -66,12 +74,18 @@ void NWAccess::clientDataReady()
 {
     QAbstractSocket *socket = reinterpret_cast<QAbstractSocket*>(QObject::sender());
     QByteArray data = buffers[socket] + socket->readAll();
+    Client& client = clients[socket];
+    if (client.id.isEmpty()) client.id = QString::number(socket->localPort());
     while (data.length()>0) {
         if (data.front() == '\0') { // dangling binary data (from previous command that was not supported)
             if (data.length()<5) break;
             quint32 len = qFromBigEndian<quint32>(data.constData()+1);
             if ((unsigned)data.length()-5<len) break;
             data = data.mid(5+len); // skip over binary block
+            if (client.version == Client::Version::R100) {
+                // NOTE: this is garbage and I sincerely hope this is going away before 1.00 is final
+                socket->write(client.makeErrorReply("protocol_error", "argument without command"));
+            }
         }
         int p = data.indexOf('\n');
         if (p>=0) { // received a complete command line
@@ -84,33 +98,37 @@ void NWAccess::clientDataReady()
             } else {
                 cmd = data.left(p);
             }
+
+            if (cmd.startsWith("EMU_")) client.version = Client::Version::Alpha;
+            else if (cmd.startsWith("EMUL")) client.version = Client::Version::R100;
+
             if (cmd == "EMULATOR_INFO" || cmd == "EMU_INFO")
             {
-                socket->write(cmdEmulatorInfo());
+                socket->write(client.cmdEmulatorInfo());
             }
             else if (cmd == "EMULATION_STATUS" || cmd == "EMU_STATUS")
             {
-                socket->write(cmdEmulationStatus());
+                socket->write(client.cmdEmulationStatus());
             }
             else if (cmd == "CORES_LIST")
             {
-                socket->write(cmdCoresList(QString::fromUtf8(args)));
+                socket->write(client.cmdCoresList(QString::fromUtf8(args)));
             }
             else if (cmd == "CORE_INFO")
             {
-                socket->write(cmdCoreInfo(QString::fromUtf8(args)));
+                socket->write(client.cmdCoreInfo(QString::fromUtf8(args)));
             }
             else if (cmd == "CORE_CURRENT_INFO")
             {
-                socket->write(cmdCoreInfo(""));
+                socket->write(client.cmdCoreInfo(""));
             }
             else if (cmd == "CORE_RESET")
             {
-                socket->write(cmdCoreReset());
+                socket->write(client.cmdCoreReset());
             }
             else if (cmd == "CORE_MEMORIES")
             {
-                socket->write(cmdCoreMemories());
+                socket->write(client.cmdCoreMemories());
             }
             else if (cmd == "CORE_READ")
             {
@@ -121,13 +139,13 @@ void NWAccess::clientDataReady()
                     int len=(i+1<sargs.length()) ? toInt(sargs[i+1],-1) : -1;
                     ranges.push_back({addr,len});
                 }
-                socket->write(cmdCoreRead(sargs[0], ranges));
+                socket->write(client.cmdCoreRead(sargs[0], ranges));
             }
             else if (cmd == "CORE_WRITE")
             {
                 if (data.length()-p-1 < 1) break; // did not receive binary start
                 if (data[p+1] != '\0') { // no binary data
-                    socket->write(makeErrorReply("no data"));
+                    socket->write(client.makeErrorReply("invalid_argument", "no data"));
                 } else {
                     if (data.length()-p-1 < 5) break; // did not receive binary header yet
                     quint32 len = qFromBigEndian<quint32>(data.constData()+p+1+1);
@@ -140,60 +158,61 @@ void NWAccess::clientDataReady()
                         int len=(i+1<sargs.length()) ? toInt(sargs[i+1],-1) : -1;
                         ranges.push_back({addr,len});
                     }
-                    socket->write(cmdCoreWrite(sargs[0], ranges, wr));
+                    socket->write(client.cmdCoreWrite(sargs[0], ranges, wr));
                     data = data.mid(p+1+5+len); // remove wr data from buffer
                     continue;
                 }
             }
             else if (cmd == "LOAD_CORE")
             {
-                socket->write(cmdLoadCore(QString::fromUtf8(args)));
+                socket->write(client.cmdLoadCore(QString::fromUtf8(args)));
             }
             else if (cmd == "LOAD_GAME")
             {
-                socket->write(cmdLoadGame(QString::fromUtf8(args)));
+                socket->write(client.cmdLoadGame(QString::fromUtf8(args)));
             }
             else if (cmd == "GAME_INFO")
             {
-                socket->write(cmdGameInfo());
+                socket->write(client.cmdGameInfo());
             }
             else if (cmd == "EMULATION_PAUSE" || cmd == "EMU_PAUSE")
             {
-                socket->write(cmdEmulationPause());
+                socket->write(client.cmdEmulationPause());
             }
             else if (cmd == "EMULATION_RESUME" || cmd == "EMU_RESUME")
             {
-                socket->write(cmdEmulationResume());
+                socket->write(client.cmdEmulationResume());
             }
             else if (cmd == "EMULATION_STOP" || cmd == "EMU_STOP")
             {
-                socket->write(cmdEmulationStop());
+                socket->write(client.cmdEmulationStop());
             }
             else if (cmd == "EMULATION_RESET" || cmd == "EMU_RESET")
             {
-                socket->write(cmdEmulationReset());
+                socket->write(client.cmdEmulationReset());
             }
             else if (cmd == "EMULATION_RELOAD" || cmd == "EMU_RELOAD")
             {
-                socket->write(cmdEmulationReload());
+                socket->write(client.cmdEmulationReload());
             }
             else if (cmd == "MY_NAME_IS")
             {
-                socket->write(cmdMyNameIs());
+                client.version = Client::Version::R100;
+                socket->write(client.cmdMyNameIs(QString::fromUtf8(args)));
             }
 #if defined(DEBUGGER)
             else if (cmd == "DEBUG_BREAK")
             {
-                socket->write(cmdDebugBreak());
+                socket->write(client.cmdDebugBreak());
             }
             else if (cmd == "DEBUG_CONTINUE")
             {
-                socket->write(cmdDebugContinue());
+                socket->write(client.cmdDebugContinue());
             }
 #endif
             else
             {
-                socket->write("\nerror:unsupported command\n\n");
+                socket->write(client.makeErrorReply("invalid_command", "unsupported command"));
             }
             data = data.mid(p+1); // remove command from buffer
         } else {
@@ -205,28 +224,45 @@ void NWAccess::clientDataReady()
 }
 
 
-QByteArray NWAccess::makeHashReply(QString reply)
+QByteArray NWAccess::Client::makeHashReply(QString reply)
 {
     if (reply.isEmpty()) return "\n\n";
     return "\n" + reply.toUtf8() + (reply.endsWith("\n") ? "\n" : "\n\n");
 }
 
-QByteArray NWAccess::makeEmptyListReply()
+
+QByteArray NWAccess::Client::makeHashReply(QList<QPair<const QString&,const QString&>> reply)
 {
-    return "\nnone:none\n\n"; // NOTE: we may get rid of this
+    if (reply.isEmpty()) return "\n\n";
+    QByteArray buf;
+    for (auto& pair: reply)
+        buf += "\n" + pair.first.toUtf8() + ":" + pair.second.toUtf8();
+    return buf + "\n\n";
 }
 
-QByteArray NWAccess::makeErrorReply(QString error)
+QByteArray NWAccess::Client::makeEmptyListReply()
 {
-    return "\nerror:" + error.replace('\n',' ').toUtf8() + "\n\n";
+    if (version == Version::Alpha)
+        return "\nnone:none\n\n";
+    return "\n\n";
 }
 
-QByteArray NWAccess::makeOkReply()
+QByteArray NWAccess::Client::makeErrorReply(QString type, QString msg)
 {
-    return "\nok\n\n"; // NOTE: we may get rid of this
+    if (version == Version::Alpha)
+        return "\nerror:" + msg.replace('\n',' ').toUtf8() + "\n\n";
+    return "\nerror:" + type.replace('\n',' ').toUtf8() +
+           "\nreason:" + msg.replace('\n',' ').toUtf8() + "\n\n";
 }
 
-QByteArray NWAccess::makeBinaryReply(const QByteArray &data)
+QByteArray NWAccess::Client::makeOkReply()
+{
+    if (version == Version::Alpha)
+        return "\nok\n\n";
+    return "\n\n";
+}
+
+QByteArray NWAccess::Client::makeBinaryReply(const QByteArray &data)
 {
     QByteArray reply(5,'\0');
     qToBigEndian((quint32)data.length(), reply.data()+1);
@@ -235,28 +271,28 @@ QByteArray NWAccess::makeBinaryReply(const QByteArray &data)
 }
 
 
-QByteArray NWAccess::cmdCoresList(QString platform)
+QByteArray NWAccess::Client::cmdCoresList(QString platform)
 {
     if (!platform.isEmpty() && platform.toLower() != "snes")
         return makeEmptyListReply();
     return makeHashReply("platform:snes\nname:"+coreName);
 }
 
-QByteArray NWAccess::cmdCoreInfo(QString core)
+QByteArray NWAccess::Client::cmdCoreInfo(QString core)
 {
     if (!core.isEmpty() && core != coreName) // only one core supported
-        return makeErrorReply("no such core");
+        return makeErrorReply("invalid_argument", "no such core \"" + core + "\"");
     return makeHashReply("platform:snes\nname:"+coreName);
 }
 
-QByteArray NWAccess::cmdLoadCore(QString core)
+QByteArray NWAccess::Client::cmdLoadCore(QString core)
 {    
     if (core != coreName) // can not change (load/unload) core
-        return makeErrorReply("not supported");
+        return makeErrorReply("invalid_command", "not supported");
     return makeOkReply();
 }
 
-QByteArray NWAccess::cmdCoreMemories()
+QByteArray NWAccess::Client::cmdCoreMemories()
 {
 #if defined(DEBUGGER)
     return makeHashReply("name:CARTROM\n" "access:rw\n"
@@ -271,7 +307,7 @@ QByteArray NWAccess::cmdCoreMemories()
 #endif
 }
 
-QByteArray NWAccess::cmdEmulationStatus()
+QByteArray NWAccess::Client::cmdEmulationStatus()
 {
     bool loaded = SNES::cartridge.loaded();
     bool stopped = !application.power;
@@ -291,47 +327,55 @@ QByteArray NWAccess::cmdEmulationStatus()
                          QString("game:") + game);
 }
 
-QByteArray NWAccess::cmdEmulatorInfo()
+QByteArray NWAccess::Client::cmdEmulatorInfo()
 {
-    return makeHashReply(QString("name:") + SNES::Info::Name + "\n" +
-                         QString("version:") + SNES::Info::Version);
+    if (version == Version::Alpha)
+        return makeHashReply(QString("name:") + SNES::Info::Name + "\n" +
+                             QString("version:") + SNES::Info::Version + "\n");
+    return makeHashReply({
+        {"name", SNES::Info::Name},
+        {"version", SNES::Info::Version},
+        {"nwa_version", "1.0"},
+        {"id", id},
+        {"commands", commands},
+    });
 }
 
-QByteArray NWAccess::cmdCoreReset()
+QByteArray NWAccess::Client::cmdCoreReset()
 {
     // this is a hard reset
     utility.modifySystemState(Utility::PowerCycle);
     return makeOkReply();
 }
 
-QByteArray NWAccess::cmdEmulationReset()
+QByteArray NWAccess::Client::cmdEmulationReset()
 {
     // this is a soft reset
     utility.modifySystemState(Utility::Reset);
     return makeOkReply();
 }
 
-QByteArray NWAccess::cmdEmulationStop()
+QByteArray NWAccess::Client::cmdEmulationStop()
 {
     utility.modifySystemState(Utility::PowerOff);
     return makeOkReply();
 }
 
-QByteArray NWAccess::cmdEmulationPause()
+QByteArray NWAccess::Client::cmdEmulationPause()
 {
     application.pause = true;
     return makeOkReply();
 }
 
-QByteArray NWAccess::cmdEmulationResume()
+QByteArray NWAccess::Client::cmdEmulationResume()
 {
     if (!SNES::cartridge.loaded()) {
-        return makeErrorReply("no game loaded");
+        return makeErrorReply("not_allowed", "no game loaded");
     }
 #if defined(DEBUGGER)
     else if (application.debug) {
         // use DEBUG_CONTINUE to continue from breakpoint
-        return makeErrorReply("in breakpoint");
+        return makeErrorReply("not_allowed", "in breakpoint");
     }
 #endif
     else {
@@ -341,7 +385,8 @@ QByteArray NWAccess::cmdEmulationResume()
         return makeOkReply();
     }
 }
-QByteArray NWAccess::cmdEmulationReload()
+
+QByteArray NWAccess::Client::cmdEmulationReload()
 {
     if (SNES::cartridge.loaded()) {
         application.reloadCartridge();
@@ -352,7 +397,7 @@ QByteArray NWAccess::cmdEmulationReload()
     }
 }
 
-QByteArray NWAccess::cmdLoadGame(QString path)
+QByteArray NWAccess::Client::cmdLoadGame(QString path)
 {
     if (path.isEmpty()) {
         utility.modifySystemState(Utility::UnloadCartridge);
@@ -360,15 +405,16 @@ QByteArray NWAccess::cmdLoadGame(QString path)
     }
     
     string f = path.toUtf8().constData();
-    if (!file::exists(f)) return makeErrorReply("no such file");
+    if (!file::exists(f)) return makeErrorReply("invalid_argument", "no such file");
     
     utility.modifySystemState(Utility::UnloadCartridge);
     cartridge.loadNormal(f); // TODO: make this depend on file ext
     utility.modifySystemState(Utility::LoadCartridge);
     if (SNES::cartridge.loaded()) return makeOkReply();
-    return makeErrorReply("could not load game");
+    return makeErrorReply("invalid_argument", "could not load game");
 }
-QByteArray NWAccess::cmdGameInfo()
+
+QByteArray NWAccess::Client::cmdGameInfo()
 {
     if (!SNES::cartridge.loaded()) return makeHashReply("");
     
@@ -382,7 +428,8 @@ QByteArray NWAccess::cmdGameInfo()
                          "file:" + file + "\n" +
                          "region:" + region);
 }
-QByteArray NWAccess::cmdMyNameIs()
+
+QByteArray NWAccess::Client::cmdMyNameIs(QString)
 {
     return makeOkReply(); // ack unsupported but required command
 }
@@ -420,14 +467,13 @@ bool NWAccess::mapDebuggerMemory(const QString &memory, SNES::Debugger::MemorySo
 }
 #endif
 
-
-QByteArray NWAccess::cmdCoreRead(QString memory, QList< QPair<int,int> > &regions)
+QByteArray NWAccess::Client::cmdCoreRead(QString memory, QList< QPair<int,int> > &regions)
 {    
     // verify args
     if (regions.length()>1)
         for (const auto& pair: regions)
             if (pair.second<1)
-                return makeErrorReply("bad format");
+                return makeErrorReply("invalid_argument", "bad format");
     if (regions.isEmpty()) // no region = read all
         regions.push_back({0,-1});
     QByteArray data;
@@ -436,7 +482,7 @@ QByteArray NWAccess::cmdCoreRead(QString memory, QList< QPair<int,int> > &region
     unsigned offset;
     unsigned size;
     if (!mapDebuggerMemory(memory, source, offset, size))
-        return makeErrorReply("unknown memory");
+        return makeErrorReply("invalid_argument", "unknown memory");
     if (SNES::cartridge.loaded()) {
         SNES::debugger.bus_access = true;
         for (auto it=regions.begin(); it!=regions.end();) {
@@ -472,23 +518,23 @@ QByteArray NWAccess::cmdCoreRead(QString memory, QList< QPair<int,int> > &region
     }
 #else
     // TODO: regular bsnes
-    return makeErrorReply("not implemented");
+    return makeErrorReply("invalid_command", "not implemented");
 #endif
     return makeBinaryReply(data);
 }
 
-QByteArray NWAccess::cmdCoreWrite(QString memory, QList< QPair<int,int> >& regions, QByteArray data)
+QByteArray NWAccess::Client::cmdCoreWrite(QString memory, QList< QPair<int,int> >& regions, QByteArray data)
 {
     // verify args
     int expectedLen=(regions.length()) ? 0 : -1;
     for (const auto& pair: regions) {
         if (regions.length()>1)
             if (pair.second<1)
-                return makeErrorReply("bad format");
+                return makeErrorReply("invalid_argument", "bad format");
         expectedLen += pair.second;
     }
     if (expectedLen>=0 && data.length() != expectedLen) // data len != regions
-        return makeErrorReply("bad data length");
+        return makeErrorReply("invalid_argument", "bad data length");
     if (regions.isEmpty()) // no region = write all
         regions.push_back({0,data.length()});
     else if (regions[0].second < 0) // address only
@@ -499,7 +545,7 @@ QByteArray NWAccess::cmdCoreWrite(QString memory, QList< QPair<int,int> >& regio
     unsigned offset;
     unsigned size;
     if (!mapDebuggerMemory(memory, source, offset, size))
-        return makeErrorReply("unknown memory");
+        return makeErrorReply("invalid_argument", "unknown memory");
     if (SNES::cartridge.loaded()) {
         if (memory == "CARTROM" && size<0x800000) size = 0x800000;
         SNES::debugger.bus_access = true;
@@ -518,19 +564,19 @@ QByteArray NWAccess::cmdCoreWrite(QString memory, QList< QPair<int,int> >& regio
     }
 #else
     // TODO: regular bsnes
-    return makeErrorReply("not implemented");
+    return makeErrorReply("invalid_command", "not implemented");
 #endif
     return makeOkReply();
 }
 
 #if defined(DEBUGGER)
-QByteArray NWAccess::cmdDebugBreak()
+QByteArray NWAccess::Client::cmdDebugBreak()
 {
     if (!application.debug) debugger->toggleRunStatus();
     return makeOkReply();
 }
 
-QByteArray NWAccess::cmdDebugContinue()
+QByteArray NWAccess::Client::cmdDebugContinue()
 {
     if (application.debug) debugger->toggleRunStatus();
     return makeOkReply();

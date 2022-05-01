@@ -77,16 +77,20 @@ void NWAccess::clientDataReady()
     QAbstractSocket *socket = reinterpret_cast<QAbstractSocket*>(QObject::sender());
     QByteArray data = buffers[socket] + socket->readAll();
     Client& client = clients[socket];
-    if (client.id.isEmpty()) client.id = QString::number(socket->localPort());
+    if (client.emulator_id.isEmpty()) client.emulator_id = QString::number(socket->localPort());
     while (data.length()>0) {
-        if (data.front() == '\0') { // dangling binary data (from previous command that was not supported)
-            if (data.length()<5) break;
-            quint32 len = qFromBigEndian<quint32>(data.constData()+1);
-            if ((unsigned)data.length()-5<len) break;
-            data = data.mid(5+len); // skip over binary block
-            if (client.version == Client::Version::R100) {
-                // NOTE: this is garbage and I sincerely hope this is going away before 1.00 is final
+        if (data.front() == '\0') { // dangling binary data (from previous command that was not detected as binary)
+            if (client.version == Client::Version::R1) {
+                // in 1.0 we can reliably detect that there should not have been a binary block -> error out
                 socket->write(client.makeErrorReply("protocol_error", "argument without command"));
+                socket->close();
+                return;
+            } else {
+                // before 1.0 we simply skip the block
+                if (data.length()<5) break;
+                quint32 len = qFromBigEndian<quint32>(data.constData()+1);
+                if ((unsigned)data.length()-5<len) break;
+                data = data.mid(5+len);
             }
         }
         int p = data.indexOf('\n');
@@ -101,9 +105,36 @@ void NWAccess::clientDataReady()
                 cmd = data.left(p);
             }
 
+            // detect protocol version
             if (cmd.startsWith("EMU_")) client.version = Client::Version::Alpha;
-            else if (cmd.startsWith("EMUL")) client.version = Client::Version::R100;
+            else if (cmd.startsWith("EMUL")) client.version = Client::Version::R1;
+            else if (cmd.startsWith("b")) client.version = Client::Version::R1;
 
+            // detect if binary block should follow
+            bool binarg = false;
+            quint32 binlen = 0;
+            if (client.version == Client::Version::R1) {
+                binarg = (cmd[0] == 'b');
+                if (binarg) cmd = cmd.mid(1);
+            } else {
+                binarg = (cmd == "CORE_WRITE");
+            }
+
+            // receive binary block
+            if (binarg) {
+                if (data.length()-p-1 < 1) break; // did not receive binary start yet
+                if (data[p+1] != '\0') { // not a binary block
+                    printf("bCMD bad data\n");
+                    socket->write(client.makeErrorReply("invalid_argument", "no data"));
+                    data = data.mid(p+1); // remove command from buffer
+                    continue;
+                }
+                if (data.length()-p-1 < 5) break; // did not receive binary header yet
+                binlen = qFromBigEndian<quint32>(data.constData()+p+1+1);
+                if ((unsigned)data.length()-p-1-5<binlen) break; // did not receive complete binary data yet
+            }
+
+            // handle command
             if (cmd == "EMULATOR_INFO" || cmd == "EMU_INFO")
             {
                 socket->write(client.cmdEmulatorInfo());
@@ -143,27 +174,17 @@ void NWAccess::clientDataReady()
                 }
                 socket->write(client.cmdCoreRead(sargs[0], ranges));
             }
-            else if (cmd == "CORE_WRITE")
+            else if (cmd == "CORE_WRITE" && binarg)
             {
-                if (data.length()-p-1 < 1) break; // did not receive binary start
-                if (data[p+1] != '\0') { // no binary data
-                    socket->write(client.makeErrorReply("invalid_argument", "no data"));
-                } else {
-                    if (data.length()-p-1 < 5) break; // did not receive binary header yet
-                    quint32 len = qFromBigEndian<quint32>(data.constData()+p+1+1);
-                    if ((unsigned)data.length()-p-1-5<len) break; // did not receive complete binary data yet
-                    QByteArray wr = data.mid(p+1+5, len);
-                    QStringList sargs = QString::fromUtf8(args).split(';');
-                    QList< QPair<int,int> > ranges;
-                    for (int i=1; i<sargs.length(); i+=2) {
-                        int addr=toInt(sargs[i]);
-                        int len=(i+1<sargs.length()) ? toInt(sargs[i+1],-1) : -1;
-                        ranges.push_back({addr,len});
-                    }
-                    socket->write(client.cmdCoreWrite(sargs[0], ranges, wr));
-                    data = data.mid(p+1+5+len); // remove wr data from buffer
-                    continue;
+                QByteArray wr = data.mid(p+1+5, binlen);
+                QStringList sargs = QString::fromUtf8(args).split(';');
+                QList< QPair<int,int> > ranges;
+                for (int i=1; i<sargs.length(); i+=2) {
+                    int addr=toInt(sargs[i]);
+                    int len=(i+1<sargs.length()) ? toInt(sargs[i+1],-1) : -1;
+                    ranges.push_back({addr,len});
                 }
+                socket->write(client.cmdCoreWrite(sargs[0], ranges, wr));
             }
             else if (cmd == "LOAD_CORE")
             {
@@ -199,7 +220,7 @@ void NWAccess::clientDataReady()
             }
             else if (cmd == "MY_NAME_IS")
             {
-                client.version = Client::Version::R100;
+                client.version = Client::Version::R1;
                 socket->write(client.cmdMyNameIs(QString::fromUtf8(args)));
             }
 #if defined(DEBUGGER)
@@ -216,7 +237,7 @@ void NWAccess::clientDataReady()
             {
                 socket->write(client.makeErrorReply("invalid_command", "unsupported command"));
             }
-            data = data.mid(p+1); // remove command from buffer
+            data = data.mid(p + 1 + (binarg ? (5+binlen) : 0)); // remove command from buffer
         } else {
             break; // incomplete command
         }
@@ -297,12 +318,14 @@ QByteArray NWAccess::Client::cmdLoadCore(QString core)
 QByteArray NWAccess::Client::cmdCoreMemories()
 {
 #if defined(DEBUGGER)
-    return makeHashReply("name:CARTROM\n" "access:rw\n"
-                         "name:WRAM\n"    "access:rw\n"
-                         "name:SRAM\n"    "access:rw\n"
-                         "name:VRAM\n"    "access:rw\n"
-                         "name:OAM\n"     "access:rw\n"
-                         "name:CGRAM\n"   "access:rw");
+    QString s;
+    for (const QString& memory: {"CARTROM", "WRAM", "SRAM", "VRAM", "OAM", "CGRAM"}) {
+        SNES::Debugger::MemorySource source;
+        unsigned offset, size;
+        if (mapDebuggerMemory(memory, source, offset, size))
+            s += "name:" + memory + "\naccess:rw\nsize:" + QString::number(size) + "\n";
+    }
+    return makeHashReply(s);
 #else
     // TODO: regular bsnes
     return makeEmptyListReply();
@@ -320,10 +343,8 @@ QByteArray NWAccess::Client::cmdEmulationStatus()
     const char* state = !loaded ? "no_game" : stopped ? "stopped" : paused ? "paused" : "running";
     QString game;
     if (SNES::cartridge.loaded()) {
-        QString name = SNES::cartridge.basename();
-        int p = name.lastIndexOf('/');
-        int q = name.lastIndexOf('\\');
-        game = name.mid(p>q ? p+1 : q+1).replace("\n"," ");
+        QString name = notdir(SNES::cartridge.basename());
+        game = name.replace("\n"," ");
     }
     return makeHashReply(QString("state:") + state + "\n" +
                          QString("game:") + game);
@@ -334,11 +355,13 @@ QByteArray NWAccess::Client::cmdEmulatorInfo()
     if (version == Version::Alpha)
         return makeHashReply(QString("name:") + SNES::Info::Name + "\n" +
                              QString("version:") + SNES::Info::Version + "\n");
+
+    // FIXME: sometimes this crashes when running right after loading ROM ?!
     return makeHashReply({
         {"name", SNES::Info::Name},
         {"version", SNES::Info::Version},
         {"nwa_version", "1.0"},
-        {"id", id},
+        {"id", emulator_id},
         {"commands", commands},
     });
 }
@@ -418,13 +441,11 @@ QByteArray NWAccess::Client::cmdLoadGame(QString path)
 
 QByteArray NWAccess::Client::cmdGameInfo()
 {
-    if (!SNES::cartridge.loaded()) return makeHashReply("");
+    if (!SNES::cartridge.loaded() || !cartridge.baseName || !SNES::cartridge.basename()) return makeHashReply("");
     
     QString file = cartridge.baseName;
-    QString name = SNES::cartridge.basename();
-    int p = name.lastIndexOf('/');
-    int q = name.lastIndexOf('\\');
-    name = name.mid(p>q ? p+1 : q+1).replace("\n"," ");
+    QString name = notdir(SNES::cartridge.basename());
+    name = name.replace("\n"," ");
     QString region = SNES::cartridge.region()==SNES::Cartridge::Region::NTSC ? "NTSC" : "PAL";
     return makeHashReply("name:" + name + "\n" +
                          "file:" + file + "\n" +
@@ -433,7 +454,7 @@ QByteArray NWAccess::Client::cmdGameInfo()
 
 QByteArray NWAccess::Client::cmdMyNameIs(QString)
 {
-    return makeOkReply(); // ack unsupported but required command
+    return makeHashReply("name:" + QString(SNES::Info::Name) + " " + emulator_id);
 }
 
 #if defined(DEBUGGER)
@@ -470,7 +491,7 @@ bool NWAccess::mapDebuggerMemory(const QString &memory, SNES::Debugger::MemorySo
 #endif
 
 QByteArray NWAccess::Client::cmdCoreRead(QString memory, QList< QPair<int,int> > &regions)
-{    
+{
     // verify args
     if (regions.length()>1)
         for (const auto& pair: regions)
@@ -485,7 +506,9 @@ QByteArray NWAccess::Client::cmdCoreRead(QString memory, QList< QPair<int,int> >
     unsigned size;
     if (!mapDebuggerMemory(memory, source, offset, size))
         return makeErrorReply("invalid_argument", "unknown memory");
-    if (SNES::cartridge.loaded()) {
+    bool loaded = SNES::cartridge.loaded();
+    if (loaded || version == Version::R1) {
+        // NOTE: this is probably not fully 1.0 compilant yet, but it passes the current tests
         SNES::debugger.bus_access = true;
         for (auto it=regions.begin(); it!=regions.end();) {
             int start = (it->first>=0) ? (unsigned)it->first : 0;
@@ -548,7 +571,9 @@ QByteArray NWAccess::Client::cmdCoreWrite(QString memory, QList< QPair<int,int> 
     unsigned size;
     if (!mapDebuggerMemory(memory, source, offset, size))
         return makeErrorReply("invalid_argument", "unknown memory");
-    if (SNES::cartridge.loaded()) {
+    bool loaded = SNES::cartridge.loaded();
+    if (loaded) {
+        // NOTE: this is probably not fully 1.0 compilant yet, but it passes the current tests
         if (memory == "CARTROM" && size<0x800000) size = 0x800000;
         SNES::debugger.bus_access = true;
         const uint8_t *p = (uint8_t*)data.constData();

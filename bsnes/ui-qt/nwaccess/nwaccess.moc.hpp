@@ -23,11 +23,11 @@ protected:
         enum class Version {
             Unknown = 0,
             Alpha = 1,
-            R100 = 100,
+            R1 = 10, // 1.0
         };
 
         Version version = Version::Unknown;
-        QString id;
+        QString emulator_id;
 
         QByteArray makeHashReply(QString reply);
         QByteArray makeHashReply(QList<QPair<const QString&,const QString&>> reply);

@@ -458,6 +458,17 @@ void Debugger::echo(const char *message) {
   console->insertHtml(QString::fromUtf8(message));
 }
 
+void Debugger::hide() {
+  Window::hide();
+  application.debug = application.debugrun = false;
+  synchronize();
+}
+
+void Debugger::closeEvent(QCloseEvent *event) {
+  Window::closeEvent(event);
+  application.debug = application.debugrun = false;
+}
+
 void Debugger::clear() {
   console->setHtml("");
 }
@@ -686,8 +697,10 @@ void Debugger::event() {
   
   audio.clear();
   autoUpdate();
-  show();
-  activateWindow();
+  if(!SNES::debugger.log_without_break) {
+    show();
+    activateWindow();
+  }
 }
 
 // update "auto refresh" tool windows

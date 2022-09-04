@@ -207,7 +207,7 @@ void Application::run() {
     SNES::system.run();
     #if defined(DEBUGGER)
     if(SNES::debugger.break_event != SNES::Debugger::BreakEvent::None) {
-      debug = true;
+      debug = !SNES::debugger.log_without_break;
       debugrun = false;
       debugger->synchronize();
       debugger->event();
@@ -218,7 +218,7 @@ void Application::run() {
       pause = true;
     }
   } else {
-    usleep(20 * 1000);
+    usleep(1000);
     if (frameAdvance) {
       audio.clear();
       frameAdvance = false;

@@ -255,10 +255,14 @@ bool SgbDisasmProcessor::getLine(DisassemblerLine &result, uint32_t &address) {
   }
 
   // Advance to next
-  if ((usage(address + opcode.size()) & SNES::SGBDebugger::UsageOpcode) != 0) {
-    address += opcode.size();
-  }
+  for (uint32_t i=1; i<=4; i++) {
+    if ((usage(address + i) & SNES::SGBDebugger::UsageOpcode) == 0) {
+      continue;
+    }
 
+    address += i;
+    break;
+  }
   return true;
 }
 
@@ -276,7 +280,7 @@ void SgbDisasmProcessor::analyze(uint32_t address) {
     SNES::supergameboy.usage(address) |= SNES::SGBDebugger::UsageOpcode;
     SNES::supergameboy.disassemble_opcode_ex(op, address);
 
-    if (op.isBraWithContinue() && !op.isIndirect()) {
+    if (op.isCall() || (op.isBraWithContinue() && !op.isIndirect())) {
       uint32_t target = decode(op, address);
       if (usage(target) == 0) {
         // hack: if jumping from fixed to swappable ROM bank, don't continue

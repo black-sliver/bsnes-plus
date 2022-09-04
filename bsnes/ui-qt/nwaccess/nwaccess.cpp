@@ -1,6 +1,7 @@
 #include "nwaccess.moc"
-#include <QTcpSocket>
 #include <QMap>
+#include <QTcpSocket>
+#include <QtGlobal>
 
 
 /* protocol: see https://github.com/usb2snes/emulator-networkaccess
@@ -29,12 +30,22 @@ static QString commands =
 ",DEBUG_BREAK,DEBUG_CONTINUE"
 #endif
 ;
+static const quint16 defaultPort = 0xBEEF;
+
 
 NWAccess::NWAccess(QObject *parent)
     : QObject(parent)
 {
+    quint16 startPort = defaultPort;
+    // If NWA_PORT_RANGE env var is defined, use the first integer in it as
+    // start port. Using strtol(utf8) is the most flexible way for that.
+    QByteArray envPortBytes = qEnvironmentVariable("NWA_PORT_RANGE").toUtf8();
+    long envPort = strtol(envPortBytes.data(), NULL, 0);
+    if (envPort >= 1 && envPort <= 65535)
+        startPort = (quint16)envPort;
+    // Start the NWA server, trying up to 10 ports from start port
     server = new QTcpServer(this);
-    for (quint16 port=65400; port<65410; port++) {
+    for (quint16 port=startPort; port<startPort+10; port++) {
         if (server->listen(QHostAddress::LocalHost, port)) {
             qDebug() << "NWAccess Listening on localhost:" << port;
             break;

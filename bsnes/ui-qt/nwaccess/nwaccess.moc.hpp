@@ -29,8 +29,8 @@ protected:
         Version version = Version::Unknown;
         QString emulator_id;
 
-        QByteArray makeHashReply(QString reply);
-        QByteArray makeHashReply(QList<QPair<const QString&,const QString&>> reply);
+        QByteArray makeHashReply(const QString &reply);
+        QByteArray makeHashReply(const QList<QPair<QString, QString>> &reply);
         QByteArray makeEmptyListReply();
         QByteArray makeErrorReply(QString type, QString msg);
         QByteArray makeOkReply();

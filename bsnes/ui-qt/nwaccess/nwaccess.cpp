@@ -258,14 +258,14 @@ void NWAccess::clientDataReady()
 }
 
 
-QByteArray NWAccess::Client::makeHashReply(QString reply)
+QByteArray NWAccess::Client::makeHashReply(const QString &reply)
 {
     if (reply.isEmpty()) return "\n\n";
     return "\n" + reply.toUtf8() + (reply.endsWith("\n") ? "\n" : "\n\n");
 }
 
 
-QByteArray NWAccess::Client::makeHashReply(QList<QPair<const QString&,const QString&>> reply)
+QByteArray NWAccess::Client::makeHashReply(const QList<QPair<QString, QString>> &reply)
 {
     if (reply.isEmpty()) return "\n\n";
     QByteArray buf;

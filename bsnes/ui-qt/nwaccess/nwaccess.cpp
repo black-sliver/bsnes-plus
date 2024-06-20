@@ -540,6 +540,11 @@ QByteArray NWAccess::Client::cmdCoreRead(QString memory, QList< QPair<int,int> >
                 pad = len-(size-start);
                 len = size-start;
             }
+            if (!loaded) {
+                // memory may not be allocated, but would be valid -> return all 0
+                pad += len;
+                len = 0;
+            }
             for (int addr=offset+start; addr<offset+start+len; addr++)
                 data += SNES::debugger.read(source, addr);
             for (unsigned i=0; i<pad; i++)

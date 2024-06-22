@@ -25,14 +25,14 @@ jobs:
         uses: rlespinasse/github-slug-action@v3.x
 
       - name: Set up Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v5
         with:
-          go-version: 1.16
+          go-version: '^1.22.4'
 
       - name: Install Qt
         run: brew update && brew install qt@5
 
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         name: Checkout
         with:
           fetch-depth: 0
@@ -53,11 +53,13 @@ jobs:
           -o ${{env.basename}}.tar.gz
           bsnes+.app/
 
-      - uses: actions/upload-artifact@v1
+      - uses: actions/upload-artifact@v4
         name: Upload artifact
         with:
           name: ${{env.basename}}.tar.gz
           path: ${{github.workspace}}/${{env.basename}}.tar.gz
+          compression-level: 0
+          if-no-files-found: error
 
   windows-build:
     runs-on: windows-latest
@@ -78,7 +80,7 @@ jobs:
       - name: Inject slug/short variables
         uses: rlespinasse/github-slug-action@v3.x
 
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         name: Checkout
         with:
           fetch-depth: 0
@@ -123,7 +125,9 @@ jobs:
           7z a -r -mx=9 ../${{env.basename}}.zip ${{env.basename}}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v4
         with:
           name: ${{env.basename}}.zip
           path: ${{github.workspace}}\${{env.basename}}.zip
+          compression-level: 0
+          if-no-files-found: error

@@ -8,7 +8,15 @@ on:
 
 jobs:
   mac-build:
-    runs-on: macos-13
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            arch: arm64
+          - os: macos-13
+            arch: amd64
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Inject slug/short variables
@@ -27,7 +35,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - run: echo "basename=bsnes-plus-${{env.GITHUB_REF_SLUG}}-mac" >> $GITHUB_ENV
+      - run: echo "basename=bsnes-plus-${{env.GITHUB_REF_SLUG}}-mac-${{ matrix.arch }}" >> $GITHUB_ENV
         name: Set variables
 
       - run: |

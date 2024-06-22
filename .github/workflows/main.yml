@@ -13,8 +13,10 @@ jobs:
         include:
           - os: macos-latest
             arch: arm64
+            qtpath: "/opt/homebrew/opt/qt@5"
           - os: macos-13
             arch: amd64
+            qtpath: "/usr/local/opt/qt@5"
 
     runs-on: ${{ matrix.os }}
 
@@ -40,7 +42,7 @@ jobs:
 
       - run: |
           cd bsnes
-          make qtpath=/usr/local/opt/qt@5
+          make qtpath=${{ matrix.qtpath }}
 
       # cross-platform tar.gz creator:
       - name: Create ${{env.basename}}.tar.gz

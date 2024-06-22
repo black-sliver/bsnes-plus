@@ -69,6 +69,7 @@ jobs:
         with:
           draft: true
           prerelease: true
+          fail_on_unmatched_files: true
           name: bsnes-plus-nwa v${{ env.RELEASE_VERSION }}
           files: |
             ${{github.workspace}}/${{env.basename}}.tar.gz
@@ -140,13 +141,16 @@ jobs:
         run: |
           cd bsnes
           mv out ${{env.basename}}
+          echo "Zipping $PWD/${{env.basename}} to $PWD/../${{env.basename}}.zip"
           7z a -r -mx=9 ../${{env.basename}}.zip ${{env.basename}}
+          ls ..
 
       - name: Create Release
         uses: softprops/action-gh-release@975c1b265e11dd76618af1c374e7981f9a6ff44a
         with:
           draft: true
           prerelease: true
+          fail_on_unmatched_files: true
           name: bsnes-plus-nwa v${{ env.RELEASE_VERSION }}
           files: |
             ${{github.workspace}}\${{env.basename}}.zip

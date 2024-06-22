@@ -141,8 +141,8 @@ jobs:
         run: |
           cd bsnes
           mv out ${{env.basename}}
-          echo "Zipping $PWD/${{env.basename}} to $PWD/../${{env.basename}}.zip"
-          7z a -r -mx=9 ../${{env.basename}}.zip ${{env.basename}}
+          echo "Zipping $PWD/${{env.basename}} to ${{github.workspace}}\${{env.basename}}.zip"
+          7z a -r -mx=9 ${{github.workspace}}\${{env.basename}}.zip ${{env.basename}}
           ls ..
 
       - name: Create Release
